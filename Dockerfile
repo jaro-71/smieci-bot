@@ -1,21 +1,17 @@
 FROM python:3.9-slim
 
-# Instalacja zależności systemowych dla przeglądarki
+# Instalujemy tylko niezbędne podstawowe narzędzia
 RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalacja bibliotek Pythona
+# Kopiujemy listę bibliotek
 COPY requirements.txt .
+
+# Instalujemy lekkie biblioteki (fastapi, requests, beautifulsoup4)
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Instalacja przeglądarki Chromium i jej sterowników
-RUN playwright install chromium
-RUN playwright install-deps chromium
-
-# Kopiowanie kodu aplikacji
+# Kopiujemy resztę kodu aplikacji
 COPY . .
 
-# Uruchomienie serwera na porcie 10000 (wymagane przez Render)
+# Uruchamiamy serwer na porcie 10000
 CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "10000"]
