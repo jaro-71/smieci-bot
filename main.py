@@ -1,11 +1,10 @@
 from fastapi import FastAPI
 from playwright.sync_api import sync_playwright
-from urllib.parse import urlparse, parse_qs
 
 app = FastAPI()
 
 @app.get("/")
-def get_waste_schedule():
+def debug_links():
     url = "https://ekosystem.wroc.pl/gospodarowanie-odpadami/harmonogram-wywozu-odpadow/?lokalizacja=6823&ulica=391"
     
     with sync_playwright() as p:
@@ -16,37 +15,29 @@ def get_waste_schedule():
         page = context.new_page()
         
         try:
-            page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(3000)
+            page.goto(url, wait_until="networkidle", timeout=60000)
+            page.wait_for_timeout(5000)
             
-            pdf_link_element = page.query_selector("a[href*='pdf']")
+            # Pobieramy absolutnie wszystkie linki <a> z całej strony
+            links = page.query_selector_all("a")
+            all_urls = []
             
-            if not pdf_link_element:
-                browser.close()
-                return {"error": "Nie znaleziono przycisku PDF"}
-            
-            pdf_url = pdf_link_element.get_attribute("href")
-            if pdf_url.startswith("/"):
-                pdf_url = "https://ekosystem.wroc.pl" + pdf_url
-            
-            parsed_url = urlparse(pdf_url)
-            params = parse_qs(parsed_url.query)
-            
-            schedule = []
-            for i in range(1, 32):
-                kiedy = params.get(f"kiedy_{i}")
-                co = params.get(f"co_{i}")
-                if kiedy and co:
-                    date_parts = kiedy[0].split('-')
-                    formatted_date = f"{date_parts[2]}.{date_parts[1]}.{date_parts[0]}"
-                    schedule.append({"date": formatted_date, "type": co[0]})
+            for link in links:
+                href = link.get_attribute("href")
+                text = link.inner_text()
+                if href:
+                    all_urls.append({"text": text, "url": href})
             
             browser.close()
-            return schedule if schedule else {"error": "Brak danych w linku PDF"}
+            
+            if not all_urls:
+                return {"error": "Bot nie znalazł żadnego linku na stronie. Możliwa blokada Anti-Bot."}
+            
+            return {"found_links": all_urls}
             
         except Exception as e:
             browser.close()
-            return {"error": f"Błąd: {str(e)}"}
+            return {"error": f"Błąd debugowania: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
