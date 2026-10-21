@@ -8,7 +8,7 @@ app = FastAPI()
 def get_waste_schedule():
     url = "https://ekosystem.wroc.pl/gospodarowanie-odpadami/harmonogram-wywozu-odpadow/?lokalizacja=6823&ulica=391"
     
-    with sync_//playwright() as p:
+    with sync_playwright() as p:
         # Uruchamiamy przeglądarkę
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
@@ -17,34 +17,28 @@ def get_waste_schedule():
         page = context.new_page()
         
         try:
-            # Wchodzimy na stronę i czekamy na załadowanie treści
+            # Wchodzimy na stronę
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
             # Czekamy chwilę na wykonanie skryptów JavaScript
             page.wait_for_timeout(3000)
             
-            # KLUCZOWA ZMIANA: Pobieramy tylko widoczny tekst ze strony (to co widzi człowiek)
-            # Ignorujemy cały kod HTML, bierzemy czysty tekst
+            # Pobieramy widoczny tekst ze strony
             body_text = page.inner_text("body")
             
-            # Szukamy wzorca: Data (dd.mm.rrrr) oraz tekst po niej
-            # Szukamy wszystkich dat w tekście
+            # Szukamy dat i odpadów
             data = []
             date_pattern = r'(\d{1,2}\.\d{1,2}\.\d{4})'
             
-            # Dzielimy tekst na linie, aby łatwiej przypisać datę do rodzaju odpadów
             lines = body_text.split('\n')
             
             for line in lines:
                 line = line.strip()
-                # Jeśli linia zawiera datę
                 match = re.search(date_pattern, line)
                 if match:
                     date_val = match.group(1)
-                    # Usuwamy datę z linii, aby został sam rodzaj odpadów
                     waste_type = line.replace(date_val, '').strip()
                     
-                    # Odrzucamy linie, które są tylko datą lub mają dziwne znaki
                     if waste_type and len(waste_type) < 50:
                         if not any(item['date'] == date_val for item in data):
                             data.append({"date": date_val, "type": waste_type})
@@ -52,7 +46,7 @@ def get_waste_schedule():
             browser.close()
             
             if not data:
-                return {"error": "Nie znaleziono dat w tekście strony", "debug_text": body_text[:200]}
+                return {"error": "Nie znaleziono dat w tekście strony"}
             
             return data
             
