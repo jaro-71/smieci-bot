@@ -8,36 +8,57 @@ app = FastAPI()
 def get_waste_schedule():
     url = "https://ekosystem.wroc.pl/gospodarowanie-odpadami/harmonogram-wywozu-odpadow/?lokalizacja=6823&ulica=391"
     
-    with sync_playwright() as p:
-        # Uruchamiamy przeglądarkę w trybie "headless" (bez okna)
+    with sync_//playwright() as p:
+        # Uruchamiamy przeglądarkę
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
         
         try:
-            # Wchodzimy na stronę i czekamy, aż załaduje się główna treść
-            page.goto(url, wait_until="networkidle")
+            # Wchodzimy na stronę i czekamy na załadowanie treści
+            page.goto(url, wait_until="domcontentloaded", timeout=60000)
             
-            # Czekamy dodatkowe 2 sekundy, aby JavaScript dorysował tabelę
-            page.wait_for_timeout(2000)
+            # Czekamy chwilę na wykonanie skryptów JavaScript
+            page.wait_for_timeout(3000)
             
-            # Pobieramy cały kod HTML strony po wykonaniu skryptów JS
-            content = page.content()
+            # KLUCZOWA ZMIANA: Pobieramy tylko widoczny tekst ze strony (to co widzi człowiek)
+            # Ignorujemy cały kod HTML, bierzemy czysty tekst
+            body_text = page.inner_text("body")
             
-            # Wyciąganie danych za pomocą Regex (szukamy dat i typów odpadów)
+            # Szukamy wzorca: Data (dd.mm.rrrr) oraz tekst po niej
+            # Szukamy wszystkich dat w tekście
             data = []
-            # Szukamy wzorców daty (dd.mm.rrrr) i tekstu obok niej
-            # To jest uproszczony parser, który wyciąga daty z tabeli
-            rows = re.findall(r'<td>(\d{1,2}\.\d{1,2}\.\d{4})</td>\s*<td>([^<]+)</td>', content)
+            date_pattern = r'(\d{1,2}\.\d{1,2}\.\d{4})'
             
-            for date, waste_type in rows:
-                data.append({"date": date, "type": waste_type.strip()})
+            # Dzielimy tekst na linie, aby łatwiej przypisać datę do rodzaju odpadów
+            lines = body_text.split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                # Jeśli linia zawiera datę
+                match = re.search(date_pattern, line)
+                if match:
+                    date_val = match.group(1)
+                    # Usuwamy datę z linii, aby został sam rodzaj odpadów
+                    waste_type = line.replace(date_val, '').strip()
+                    
+                    # Odrzucamy linie, które są tylko datą lub mają dziwne znaki
+                    if waste_type and len(waste_type) < 50:
+                        if not any(item['date'] == date_val for item in data):
+                            data.append({"date": date_val, "type": waste_type})
             
             browser.close()
-            return data if data else {"error": "Nie znaleziono danych w tabeli"}
+            
+            if not data:
+                return {"error": "Nie znaleziono dat w tekście strony", "debug_text": body_text[:200]}
+            
+            return data
             
         except Exception as e:
             browser.close()
-            return {"error": str(e)}
+            return {"error": f"Błąd bota: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
