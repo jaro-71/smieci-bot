@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from playwright.sync_api import sync_playwright
-import re
+from urllib.parse import urlparse, parse_qs
 
 app = FastAPI()
 
@@ -9,7 +9,6 @@ def get_waste_schedule():
     url = "https://ekosystem.wroc.pl/gospodarowanie-odpadami/harmonogram-wywozu-odpadow/?lokalizacja=6823&ulica=391"
     
     with sync_playwright() as p:
-        # Uruchamiamy przeglądarkę
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36"
@@ -17,42 +16,37 @@ def get_waste_schedule():
         page = context.new_page()
         
         try:
-            # Wchodzimy na stronę
             page.goto(url, wait_until="domcontentloaded", timeout=60000)
-            
-            # Czekamy chwilę na wykonanie skryptów JavaScript
             page.wait_for_timeout(3000)
             
-            # Pobieramy widoczny tekst ze strony
-            body_text = page.inner_text("body")
+            pdf_link_element = page.query_selector("a[href*='pdf']")
             
-            # Szukamy dat i odpadów
-            data = []
-            date_pattern = r'(\d{1,2}\.\d{1,2}\.\d{4})'
+            if not pdf_link_element:
+                browser.close()
+                return {"error": "Nie znaleziono przycisku PDF"}
             
-            lines = body_text.split('\n')
+            pdf_url = pdf_link_element.get_attribute("href")
+            if pdf_url.startswith("/"):
+                pdf_url = "https://ekosystem.wroc.pl" + pdf_url
             
-            for line in lines:
-                line = line.strip()
-                match = re.search(date_pattern, line)
-                if match:
-                    date_val = match.group(1)
-                    waste_type = line.replace(date_val, '').strip()
-                    
-                    if waste_type and len(waste_type) < 50:
-                        if not any(item['date'] == date_val for item in data):
-                            data.append({"date": date_val, "type": waste_type})
+            parsed_url = urlparse(pdf_url)
+            params = parse_qs(parsed_url.query)
+            
+            schedule = []
+            for i in range(1, 32):
+                kiedy = params.get(f"kiedy_{i}")
+                co = params.get(f"co_{i}")
+                if kiedy and co:
+                    date_parts = kiedy[0].split('-')
+                    formatted_date = f"{date_parts[2]}.{date_parts[1]}.{date_parts[0]}"
+                    schedule.append({"date": formatted_date, "type": co[0]})
             
             browser.close()
-            
-            if not data:
-                return {"error": "Nie znaleziono dat w tekście strony"}
-            
-            return data
+            return schedule if schedule else {"error": "Brak danych w linku PDF"}
             
         except Exception as e:
             browser.close()
-            return {"error": f"Błąd bota: {str(e)}"}
+            return {"error": f"Błąd: {str(e)}"}
 
 if __name__ == "__main__":
     import uvicorn
